@@ -1,0 +1,428 @@
+# Handling Money In Elixir
+
+```elixir
+Mix.install([
+  {:decimal, "~> 2.0"}
+])
+```
+
+## About Me
+
+### Karlo Smid
+
+### Zagreb
+
+### Elixir Developer @Yolo
+
+### Elixir Zagreb Meetup
+
+### walking, stand up comedy, Rubik Cube, The Worst Chess Player In The World (TWCPITW)
+
+### contact: https://github.com/karlosmid
+
+## Context
+
+[Richard Pryor earns a Ferrari in Superman 3](https://youtu.be/N7JBXGkBoFc?t=49)
+
+<!-- livebook:{"break_markdown":true} -->
+
+In each paycheck half a cent is rounded to the nearest lowest value.  
+134,505 => 134,50.  
+That is what Richard collects. 0.5 cents floats around somewhere in the computer.
+
+And that was first smart contract!
+
+## False Positives
+
+### You can store a price in a floating point variable.
+
+### All currencies are subdivided in 1/100th units like US dollar/cents, euro/eurocents.
+
+What about :BTC?
+
+### All currencies are subdivided in decimal units (like dinar/fils)
+
+Madagascar MGA, where 1 ariary = 5 iraimbilanja
+
+### All currencies are subdivided.
+
+Japanese Yen :JPY
+
+### Prices can't have more precision than the smaller sub-unit of the currency.
+
+AWS t2.small/spot $0.0069/hour  
+EUR to HRK conversion rate on date 1.1.2023 is 7.53450   
+How much is 200 HRK? 26.5445616829 :EUR
+
+### For any currency you can have a price of 1.
+
+Zimbabwean dollar ZWL
+
+## Creating and destroying money through error
+
+Elixir hexdoc for float nicely explains the problem. As we store by IEEE 754 possible infinitive decimal values into finit binary, all float calcuations are aproximation.
+
+```elixir
+0.1 * 0.1
+```
+
+```elixir
+0.1 * 0.1 - 0.01
+```
+
+```elixir
+0.1 + 0.1 + 0.1
+```
+
+```elixir
+0.1 + 0.1 + 0.1 - 0.3
+```
+
+We created money with calculation error out of the thin air.
+
+```elixir
+0.5 ** 1075
+```
+
+And this was an example of destroying money through the error.
+
+## Underflow
+
+### Money as Integer with Minimal Quantisation - Precision
+
+```elixir
+two_milion_dollars_and_99_cents = 2_000_000.99
+us_dolar_precission = 100
+
+as_integer =
+  (two_milion_dollars_and_99_cents * us_dolar_precission)
+  |> Kernel.round()
+```
+
+What to do with smaller precisions?
+
+```elixir
+us_dollar_precission = 100
+1.23 * 1.23
+```
+
+```elixir
+us_dollar_precission = 100
+1.23 * 1.23 * us_dollar_precission
+```
+
+```elixir
+us_dollar_precission = 100
+
+(1.23 * 1.23 * us_dollar_precission)
+|> Kernel.round()
+```
+
+### How much did we lose? 0.0029 us$
+
+### With :BTC currency, 0.0029 is a lot of bitcoins.
+
+## Overflow
+
+Elixir limit on MAX INTEGER is your computer memory, there is no language restrictions, like C 64 bit integer.
+
+```elixir
+integer_64_bit = 9_223_372_036_854_775_807
+integer_64_bit + 1
+```
+
+So with Elixir, is Overflow an issue?  
+What about greedy Money?
+
+```elixir
+precision = 10 ** 8
+income = 36457.12345678
+income_as_integer = Kernel.round(income * precision)
+```
+
+```elixir
+dividend_as_integer = Kernel.round(0.2333333 * precision)
+```
+
+```elixir
+profit_as_integer = dividend_as_integer * income_as_integer
+```
+
+```elixir
+[
+  profit: String.length(Integer.to_string(profit_as_integer)),
+  income: String.length(Integer.to_string(income_as_integer)),
+  dividend: String.length(Integer.to_string(dividend_as_integer))
+]
+```
+
+## Solution
+
+## Decimal
+
+```elixir
+example = Decimal.new("23.456")
+[sign: example.sign, coeficient: example.coef, exponent: example.exp]
+```
+
+### sign * coefficient * 10 ^ exponent
+
+```elixir
+Decimal.Context.get()
+```
+
+### precision is number of digits in coeficient
+
+## Requirements
+
+## Addition
+
+```elixir
+Decimal.from_float(0.1)
+|> Decimal.add(Decimal.from_float(0.1))
+|> Decimal.add(Decimal.from_float(0.1))
+```
+
+```elixir
+Decimal.from_float(0.1) + Decimal.from_float(0.1) + Decimal.from_float(0.1)
+```
+
+## Multiplication With Integer
+
+```elixir
+Decimal.mult(Decimal.from_float(0.1), 3)
+```
+
+## Division
+
+```elixir
+Decimal.div(10, 3)
+```
+
+```elixir
+Decimal.Context.with(%Decimal.Context{precision: 3}, fn -> Decimal.div(100, 3) end)
+```
+
+```elixir
+Decimal.Context.with(%Decimal.Context{precision: 8}, fn ->
+  Decimal.div(Decimal.from_float(12_345_678.123456789), 1)
+end)
+```
+
+### Here we have to agree on precision. What to do with:
+
+```elixir
+precision_28 = Decimal.div(10, 3)
+precision_3 = Decimal.Context.with(%Decimal.Context{precision: 3}, fn -> Decimal.div(10, 3) end)
+Decimal.sub(precision_28, precision_3)
+```
+
+### Set the "precisions in one central point"
+
+```
+"USDC": {
+    "code": "USDC",
+    "precision": 5,
+    "units": {
+      "USDC": {
+        "code": "USDC",
+        "symbol": "",
+        "name": "USDC",
+        "shift": 0,
+        "displayPrecision": 2,
+        "inputPrecision": 4
+      }
+    }
+  }
+```
+
+## Fractional Multiplication
+
+```elixir
+multi = fn -> Decimal.mult("0.1", "0.11") end
+precision_28 = multi.()
+```
+
+```elixir
+precision_1 = Decimal.Context.with(%Decimal.Context{precision: 1}, multi)
+```
+
+```elixir
+[coeficient: precision_28.coef, exponent: precision_28.exp]
+```
+
+```elixir
+[coeficient: precision_1.coef, exponent: precision_1.exp]
+```
+
+### As for Division, in Fractional Multiplication we have to agree on precision.
+
+## What We Do?
+
+## How To Move Between Systems?
+
+## As Integers, with central (almost) Precisions
+
+```
+"BTC": {
+    "code": "BTC",
+    "precision": 8,
+    "units": {
+      "BTC": {
+        "code": "BTC",
+        "symbol": "₿",
+        "name": "Bitcoin",
+        "displayPrecision": 8,
+        "inputPrecision": 8,
+        "shift": 0
+      },
+      "mBTC": {
+        "code": "mBTC",
+        "symbol": "m₿",
+        "name": "Milli-bitcoin",
+        "displayPrecision": 4,
+        "inputPrecision": 5,
+        "shift": 3
+      },
+      "uBTC": {
+        "code": "uBTC",
+        "symbol": "μ₿",
+        "name": "Bits",
+        "displayPrecision": 2,
+        "inputPrecision": 2,
+        "shift": 6
+      },
+      "sat": {
+        "code": "sat",
+        "symbol": "₿",
+        "name": "Satoshi",
+        "displayPrecision": 0,
+        "inputPrecision": 0,
+        "shift": 8
+      }
+    }
+  }
+```
+
+## Over REST API
+
+### Create BTC
+
+```elixir
+from_wire = "100"
+Decimal.div(Decimal.new(from_wire), 10 ** 8)
+```
+
+```elixir
+from_database = Decimal.new("0.0000000007")
+
+Decimal.mult(from_database, 10 ** 8)
+|> Decimal.to_integer()
+```
+
+```elixir
+from_database = Decimal.new("0.0000000007")
+
+Decimal.mult(from_database, 10 ** 8)
+|> Decimal.round(0, :down)
+|> Decimal.to_integer()
+```
+
+### What happened? Value that is less than precision, is safe in database, but client will see 0 amount.
+
+### This is the money that "floats around" in the computer.
+
+## Protobuf
+
+```
+message UMoney {
+  UDecimal amount                 = 1;
+  CurrencyCodeValue currency_code = 2;
+}
+```
+
+```
+message UDecimal {
+  uint64 coef = 1;
+  int32 exp   = 2;
+}
+```
+
+```elixir
+# @spec truncate(Decimal.t()) :: Decimal.t()
+defmodule MoneyInElixir do
+  @max_coef 2 ** 64
+  def max_decimal_places(), do: (to_string(@max_coef) |> String.length()) - 1
+  def truncate(nil), do: nil
+  def truncate(%{coef: coef} = rate) when coef < @max_coef, do: rate
+
+  def truncate(rate) do
+    Decimal.Context.set(%Decimal.Context{precision: max_decimal_places()})
+    Decimal.round(rate, max_decimal_places())
+  end
+end
+```
+
+```elixir
+MoneyInElixir.max_decimal_places()
+```
+
+```elixir
+2 ** 64
+```
+
+```elixir
+MoneyInElixir.truncate(Decimal.new("18446744073709551616.1"))
+```
+
+## How to move from Memory to Database?
+
+### Ecto Schema
+
+```
+schema "accounts" do
+    field :balance, :decimal
+```
+
+### Ecto Migration
+
+```
+def up do
+    create table(:accounts) do
+      add :balance, :float
+
+      timestamps()
+    end
+```
+
+### Postgres type
+
+`numeric with precision 28, same as Decimal defult Context precision value.`
+
+## Recap
+
+### Use Decimal lib for calculations
+
+### Agree on currency calculation precision
+
+### How to store decimal as integer
+
+### Know protobuf limits
+
+### Use in Ecto as decimal and float
+
+## References
+
+### If you want to create your own library
+
+https://cs-syd.eu/posts/2022-08-22-how-to-deal-with-money-in-software
+
+### Decimal
+
+https://hexdocs.pm/decimal/Decimal.html#content
+
+### Float Problem
+
+https://hexdocs.pm/elixir/1.13/Float.html
+
+## Q&A
